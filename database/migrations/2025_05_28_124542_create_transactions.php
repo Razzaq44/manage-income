@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->date('date');
             $table->string('name');
-            $table->string('desc');
+            $table->string('description');
             $table->decimal('debit', 15, 0);
             $table->decimal('credit', 15, 0);
             $table->unsignedInteger('coa_code');
