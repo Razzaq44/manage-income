@@ -14,11 +14,11 @@ return new class extends Migration
         Schema::create('transactions', function (Blueprint $table) {
             $table->id();
             $table->date('date');
-            $table->string('name');
+            $table->unsignedInteger('coa_code');
+            $table->string('coa_name');
             $table->string('description');
             $table->decimal('debit', 15, 0)->default(0);
             $table->decimal('credit', 15, 0)->default(0);
-            $table->unsignedInteger('coa_code');
             $table->timestamps();
 
             $table->foreign('coa_code')->references('code')->on('chart_of_accounts')->onDelete('cascade');
