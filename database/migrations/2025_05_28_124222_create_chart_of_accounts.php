@@ -12,8 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('chart_of_accounts', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedInteger('code')->unique();
+            $table->unsignedInteger('code')->unique()->primary();;
             $table->string('name');
             $table->foreignId('category_id')->constrained('coa_categories')->onDelete('cascade');
             $table->timestamps();
