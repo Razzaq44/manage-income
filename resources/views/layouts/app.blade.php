@@ -47,10 +47,7 @@
                 </li>
                 <li class="flex-1 bg-transparent"></li>
                 <li class="">
-                    <button class="py-3 px-4 md:px-6 flex gap-2 rounded-none" wire:navigate
-                        wire:current="bg-neutral text-neutral-content">
-                        Log Out
-                    </button>
+
                 </li>
             </ul>
         </div>
