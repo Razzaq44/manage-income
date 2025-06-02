@@ -2,83 +2,86 @@
 
 namespace App\Exports;
 
-use App\Models\Transaction;
 use Illuminate\Contracts\View\View;
 use Maatwebsite\Excel\Concerns\FromView;
+use App\Models\Transaction;
+use App\Models\CoaCategory;
 use Carbon\Carbon;
 
 class TransactionExport implements FromView
 {
+    protected $startMonth;
+    protected $endMonth;
+
+    public function __construct($startMonth = null, $endMonth = null)
+    {
+        $this->startMonth = $startMonth;
+        $this->endMonth = $endMonth;
+    }
+
     public function view(): View
     {
-        $transactions = Transaction::with(['chartOfAccount.category'])->get();
+        $transactionsQuery = Transaction::with(['chartOfAccount.category']);
+        $categoriesFromDb = CoaCategory::all()->groupBy('type');
 
-        $grouped = $transactions->groupBy(function ($trx) {
+        $incomeCategories = $categoriesFromDb->get('income', collect())->pluck('name')->toArray();
+        $expenseCategories = $categoriesFromDb->get('expense', collect())->pluck('name')->toArray();
+
+        if ($this->startMonth && $this->endMonth) {
+            $start = Carbon::parse($this->startMonth)->startOfMonth();
+            $end = Carbon::parse($this->endMonth)->endOfMonth();
+        
+            $transactionsQuery->whereBetween('date', [$start, $end]);
+        }
+        
+        $transactions = $transactionsQuery->get();
+
+        $grouped = $transactions->sortBy('date')->groupBy(function ($trx) {
             return Carbon::parse($trx->date)->format('Y-m');
         });
 
-        $categoryTypes = [];
-        $incomeCategories = collect();
-        $expenseCategories = collect();
+        $categories = array_merge($incomeCategories, $expenseCategories);
 
-        $this->monthlyReport = $grouped->map(function ($transactions, $month) use (&$incomeCategories, &$expenseCategories, &$categoryTypes) {
-            $categories = [];
-            $totalIncome = 0;
-            $totalExpense = 0;
+        $monthlyReport = $grouped->map(function ($trxInMonth) use ($incomeCategories, $expenseCategories, $categories) {
+            $groupedByCategory = $trxInMonth->groupBy(function ($trx) {
+                return $trx->chartOfAccount->category->name;
+            });
 
-            foreach ($transactions as $trx) {
-                $category = $trx->chartOfAccount->category;
-                $catName = $category->name;
-                $catType = $category->type;
-    
-                $categoryTypes[$catName] = $catType;
-    
-                if (!isset($categories[$catName])) {
-                    $categories[$catName] = 0;
-                }
-    
-                if ($catType === 'income') {
-                    $categories[$catName] += $trx->credit;
-                    $totalIncome += $trx->credit;
-                    $incomeCategories->push($catName);
-                } elseif ($catType === 'expense') {
-                    $categories[$catName] += $trx->debit;
-                    $totalExpense += $trx->debit;
-                    $expenseCategories->push($catName);
+            $report = [];
+
+            foreach ($categories as $categoryName) {
+                $transactionsInCategory = $groupedByCategory->get($categoryName, collect());
+
+                $total = $transactionsInCategory->reduce(function ($sum, $trx) {
+                    $amount = $trx->debit > 0 ? $trx->debit : $trx->credit;
+                    return $sum + $amount;
+                }, 0);
+
+                $report[$categoryName] = $total;
+
+
+                if (in_array($categoryName, $incomeCategories)) {
+                    $index = array_search($categoryName, $incomeCategories);
+                    if ($index === count($incomeCategories) - 1) {
+                        $total_income = collect($report)->only($incomeCategories)->sum();
+                        $report['total_income'] = $total_income;
+                    }
                 }
             }
-    
-            $categories['Total Income'] = $totalIncome;
-            $categories['Total Expense'] = $totalExpense;
-            $categories['Net Income'] = $totalIncome - $totalExpense;
-    
-            $categoryTypes['Total Income'] = 'total-income';
-            $categoryTypes['Total Expense'] = 'total-expense';
-            $categoryTypes['Net Income'] = 'net-income';
-    
-            return $categories;
+
+            $total_expense = collect($report)->only($expenseCategories)->sum();
+            $report['total_expense'] = $total_expense;
+            $report['net_income'] = $report['total_income'] - $total_expense;
+
+            return $report;
         });
 
-        $categories = $incomeCategories->unique()
-            ->merge(['Total Income'])
-            ->merge($expenseCategories->unique())
-            ->merge(['Total Expense', 'Net Income']);
-
-            return view('exports.report', [
-                'monthlyReport' => $this->monthlyReport,
-                'categories' => $categories,
-                'categoryTypes' => $categoryTypes,
-                'getCellClass' => function ($type) {
-                    return match ($type) {
-                        'income' => 'background-color:#d1fae5; color:#065f46; width: 180px; height: 24px;',
-                        'expense' => 'background-color:#fee2e2; color:#991b1b; width: 180px; height: 24px;',
-                        'total-income' => 'background-color:#10b981; color:#ffffff; font-weight:bold; width: 180px; height: 24px;',
-                        'total-expense' => 'background-color:#ef4444; color:#ffffff; font-weight:bold; width: 180px; height: 24px;',
-                        'net-income' => 'background-color:#ffffff; color:#000000; font-weight:bold; width: 180px; height: 24px;',
-                        default => '',
-                    };
-                },
-            ]);
+        return view('exports.report', [
+            'monthlyReport' => $monthlyReport,
+            'categories' => $categories,
+            'incomeCategories' => $incomeCategories,
+            'expenseCategories' => $expenseCategories,
+        ]);
     }
 
     public function export() 
